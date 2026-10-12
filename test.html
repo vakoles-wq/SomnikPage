@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Проверка календаря на iPhone</title>
+<style>
+  :root { --bg: #f4f5f7; --card: #ffffff; --text: #1b1f24; --muted: #5d6673; --line: #dfe3e8; --accent: #1f6feb; --accent-text: #ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #101317; --card: #1a1f26; --text: #e8ecf1; --muted: #9aa5b4; --line: #2b323c; --accent: #4b8ff5; --accent-text: #0b0f14; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px 16px 40px; background: var(--bg); color: var(--text);
+         font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 460px; margin: 0 auto; }
+  h1 { font-size: 21px; margin: 0 0 8px; }
+  p { color: var(--muted); margin: 0 0 16px; }
+  .btn { display: block; width: 100%; margin: 10px 0; padding: 14px 16px; border-radius: 11px; border: 1px solid var(--accent);
+         background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; text-align: left;
+         text-decoration: none; cursor: pointer; }
+  .btn small { display: block; font-weight: 400; opacity: .85; margin-top: 2px; }
+  #ua { margin-top: 20px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--card);
+        color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Проверка календаря</h1>
+  <p>Откройте эту страницу в Safari и нажмите кнопки по очереди. После каждой запомните, что произошло:
+     появилось окно «Добавить в календарь», предложили скачать файл, открылся текст или ничего.
+     Потом напишите номера и результат.</p>
+
+  <a class="btn" id="b1" href="test.ics">1 · Файл с сервера<small>обычная ссылка на готовый файл .ics</small></a>
+  <button class="btn" id="b2" type="button">2 · Ссылка data + download<small>как делают библиотеки «add to calendar»</small></button>
+  <button class="btn" id="b3" type="button">3 · Ссылка data без download</button>
+  <button class="btn" id="b4" type="button">4 · Blob + download</button>
+  <button class="btn" id="b5" type="button">5 · Blob без download</button>
+  <button class="btn" id="b6" type="button">6 · Поделиться файлом<small>системное меню «Поделиться»</small></button>
+
+  <div id="ua"></div>
+</main>
+<script>
+(function () {
+  var ICS = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SomnikBot//Schedule//RU", "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT", "UID:sila-mysli-2026-10-18@somnikbot.invalid", "DTSTAMP:20261011T160000Z",
+    "DTSTART:20261018T220000Z", "DTEND:20261019T010000Z",
+    "SUMMARY:СИЛА МЫСЛИ. НАМ 5 ЛЕТ!", "LOCATION:Marconi Centre", "END:VEVENT", "END:VCALENDAR", ""
+  ].join("\r\n");
+  var NAME = "sila-mysli-2026-10-18.ics";
+  var DATA = "data:text/calendar;charset=utf-8," + encodeURIComponent(ICS);
+
+  function clickLink(href, download) {
+    var a = document.createElement("a");
+    a.href = href; a.rel = "noopener"; a.target = "_self";
+    if (download) a.download = NAME;
+    document.body.appendChild(a);
+    a.dispatchEvent(new MouseEvent("click", { view: window, bubbles: true, cancelable: true }));
+    a.remove();
+  }
+  function blobUrl() { return URL.createObjectURL(new Blob([ICS], { type: "text/calendar;charset=utf-8" })); }
+
+  document.getElementById("b2").onclick = function () { clickLink(DATA, true); };
+  document.getElementById("b3").onclick = function () { clickLink(DATA, false); };
+  document.getElementById("b4").onclick = function () { clickLink(blobUrl(), true); };
+  document.getElementById("b5").onclick = function () { clickLink(blobUrl(), false); };
+  document.getElementById("b6").onclick = function () {
+    try {
+      var file = new File([ICS], NAME, { type: "text/calendar" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: "СИЛА МЫСЛИ. НАМ 5 ЛЕТ!" }).catch(function () {});
+      } else {
+        alert("Этот браузер не умеет делиться файлами со страницы.");
+      }
+    } catch (e) { alert("Не получилось: " + e.name); }
+  };
+  document.getElementById("ua").textContent = "Браузер: " + navigator.userAgent;
+})();
+</script>
+</body>
+</html>
