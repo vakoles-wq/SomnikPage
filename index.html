@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Добавить игру в календарь</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1b1f24; --muted: #5d6673;
+    --line: #dfe3e8; --accent: #1f6feb; --accent-text: #ffffff; --warn-bg: #fff6d6; --warn-text: #5c4700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101317; --card: #1a1f26; --text: #e8ecf1; --muted: #9aa5b4;
+      --line: #2b323c; --accent: #4b8ff5; --accent-text: #0b0f14; --warn-bg: #3a3212; --warn-text: #f3dc8a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text);
+    font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 440px; margin: 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  h1 { margin: 0 0 12px; font-size: 21px; line-height: 1.25; overflow-wrap: anywhere; }
+  .row { color: var(--muted); margin: 4px 0; overflow-wrap: anywhere; }
+  .row b { color: var(--text); font-weight: 600; }
+  .actions { margin-top: 20px; display: grid; gap: 10px; }
+  .btn {
+    display: block; width: 100%; padding: 14px 16px; border-radius: 11px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font: inherit; font-weight: 600; text-align: center;
+    text-decoration: none; cursor: pointer;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .hint { margin-top: 16px; padding: 12px 14px; border-radius: 11px; background: var(--warn-bg); color: var(--warn-text); font-size: 15px; }
+  .hint[hidden], .error[hidden], .card[hidden] { display: none; }
+  .error { color: var(--muted); }
+  footer { margin-top: 14px; text-align: center; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card" id="event" hidden>
+    <h1 id="title"></h1>
+    <div class="row"><b id="when"></b></div>
+    <div class="row" id="where"></div>
+    <div class="actions">
+      <button class="btn primary" id="apple" type="button">Добавить в календарь (Apple, Outlook)</button>
+      <a class="btn" id="google" rel="noopener">Открыть в Google Календаре</a>
+      <a class="btn" id="safari" hidden>Открыть эту страницу в Safari</a>
+    </div>
+    <div class="hint" id="hint" hidden>
+      Если после нажатия ничего не произошло, вы смотрите страницу во встроенном браузере Telegram.
+      Откройте её в Safari: нажмите «⋯» или значок компаса и выберите «Открыть в Safari», затем нажмите кнопку ещё раз.
+    </div>
+  </div>
+  <div class="card error" id="error" hidden>
+    <h1>Ссылка неполная</h1>
+    <div>В ссылке нет данных об игре. Отправьте боту команду /schedule и нажмите «Apple» под нужной игрой.</div>
+  </div>
+  <footer>Страница ничего не сохраняет и никуда не отправляет: событие собирается из самой ссылки.</footer>
+</main>
+
+<script id="logic">
+// Pure functions: no DOM access here, so they can be checked outside a browser.
+var Cal = (function () {
+  var STAMP = /^\d{8}T\d{6}Z$/;
+
+  function parseParams(search) {
+    var p = new URLSearchParams(search);
+    var title = (p.get("t") || "").trim();
+    var start = p.get("s") || "";
+    var end = p.get("e") || "";
+    var place = (p.get("l") || "").trim();
+    if (!title || title.length > 300 || place.length > 300) return null;
+    if (!STAMP.test(start) || !STAMP.test(end)) return null;
+    var a = toDate(start), b = toDate(end);
+    if (isNaN(a) || isNaN(b) || b <= a) return null;
+    return { title: title, start: start, end: end, place: place };
+  }
+
+  function toDate(stamp) {
+    return new Date(Date.UTC(+stamp.slice(0, 4), +stamp.slice(4, 6) - 1, +stamp.slice(6, 8),
+                             +stamp.slice(9, 11), +stamp.slice(11, 13), +stamp.slice(13, 15)));
+  }
+
+  function basicUtc(date) {
+    function two(n) { return (n < 10 ? "0" : "") + n; }
+    return date.getUTCFullYear() + two(date.getUTCMonth() + 1) + two(date.getUTCDate()) + "T" +
+           two(date.getUTCHours()) + two(date.getUTCMinutes()) + two(date.getUTCSeconds()) + "Z";
+  }
+
+  function escapeText(value) {
+    return value.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r\n|\r|\n/g, "\\n");
+  }
+
+  // Folds one content line at 75 octets of UTF-8 without splitting a character;
+  // continuation lines start with one space, which counts toward their 75 octets.
+  function fold(line) {
+    var encoder = new TextEncoder(), out = [], current = "", size = 0, limit = 75;
+    Array.from(line).forEach(function (ch) {
+      var n = encoder.encode(ch).length;
+      if (size + n > limit) { out.push(current); current = " "; size = 1; }
+      current += ch; size += n;
+    });
+    out.push(current);
+    return out;
+  }
+
+  // The local date in Toronto decides the UID, as in the bot, so adding twice does not duplicate.
+  function dateKey(event) {
+    var parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit" })
+      .formatToParts(toDate(event.start));
+    var get = function (t) { return parts.filter(function (x) { return x.type === t; })[0].value; };
+    return get("year") + "-" + get("month") + "-" + get("day");
+  }
+
+  function icsText(event, now) {
+    var lines = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SomnikBot//Schedule//RU", "CALSCALE:GREGORIAN",
+      "BEGIN:VEVENT",
+      "UID:sila-mysli-" + dateKey(event) + "@somnikbot.invalid",
+      "DTSTAMP:" + basicUtc(now),
+      "DTSTART:" + event.start,
+      "DTEND:" + event.end,
+      "SUMMARY:" + escapeText(event.title)
+    ];
+    if (event.place) lines.push("LOCATION:" + escapeText(event.place));
+    lines.push("END:VEVENT", "END:VCALENDAR");
+    var folded = [];
+    lines.forEach(function (l) { folded = folded.concat(fold(l)); });
+    return folded.join("\r\n") + "\r\n";
+  }
+
+  function fileName(event) { return "sila-mysli-" + dateKey(event) + ".ics"; }
+
+  function googleLink(event) {
+    var q = function (v) { return encodeURIComponent(v).replace(/[!'()*]/g, function (c) { return "%" + c.charCodeAt(0).toString(16).toUpperCase(); }); };
+    return "https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + q(event.title) +
+           "&dates=" + event.start + "/" + event.end + (event.place ? "&location=" + q(event.place) : "");
+  }
+
+  function whenText(event, timeZone) {
+    var opts = { weekday: "short", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" };
+    if (timeZone) opts.timeZone = timeZone;
+    var end = { hour: "2-digit", minute: "2-digit" };
+    if (timeZone) end.timeZone = timeZone;
+    return new Intl.DateTimeFormat("ru-RU", opts).format(toDate(event.start)) + " – " +
+           new Intl.DateTimeFormat("ru-RU", end).format(toDate(event.end));
+  }
+
+  return { parseParams: parseParams, icsText: icsText, fileName: fileName, googleLink: googleLink,
+           whenText: whenText, fold: fold, escapeText: escapeText, dateKey: dateKey, toDate: toDate };
+})();
+</script>
+
+<script>
+(function () {
+  var event = Cal.parseParams(location.search);
+  if (!event) { document.getElementById("error").hidden = false; return; }
+
+  document.title = event.title + " — добавить в календарь";
+  document.getElementById("title").textContent = event.title;
+  document.getElementById("when").textContent = Cal.whenText(event);
+  document.getElementById("where").textContent = event.place;
+  document.getElementById("google").href = Cal.googleLink(event);
+  document.getElementById("event").hidden = false;
+
+  var ua = navigator.userAgent;
+  var isApple = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  var hint = document.getElementById("hint");
+
+  if (isApple) {
+    // iOS 17 and later understand this scheme and hand the page over to Safari.
+    var safari = document.getElementById("safari");
+    safari.href = "x-safari-" + location.href;
+    safari.hidden = false;
+  }
+
+  document.getElementById("apple").addEventListener("click", function () {
+    var text = Cal.icsText(event, new Date());
+    if (isApple) {
+      // Safari shows its own "Add to Calendar" sheet for a calendar document.
+      location.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(text);
+      setTimeout(function () { hint.hidden = false; }, 1200);
+      return;
+    }
+    var url = URL.createObjectURL(new Blob([text], { type: "text/calendar;charset=utf-8" }));
+    var a = document.createElement("a");
+    a.href = url; a.download = Cal.fileName(event);
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  });
+})();
+</script>
+</body>
+</html>
