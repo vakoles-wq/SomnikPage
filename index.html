@@ -179,18 +179,18 @@ var Cal = (function () {
   }
 
   document.getElementById("apple").addEventListener("click", function () {
+    // A Blob link with a file name: Safari on iPhone answers it with its own "Add to Calendar"
+    // sheet (checked on a real phone, 2026-10-11; a data: link does nothing there), and desktop
+    // browsers save the .ics file.
     var text = Cal.icsText(event, new Date());
-    if (isApple) {
-      // Safari shows its own "Add to Calendar" sheet for a calendar document.
-      location.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(text);
-      setTimeout(function () { hint.hidden = false; }, 1200);
-      return;
-    }
     var url = URL.createObjectURL(new Blob([text], { type: "text/calendar;charset=utf-8" }));
     var a = document.createElement("a");
-    a.href = url; a.download = Cal.fileName(event);
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    a.href = url; a.download = Cal.fileName(event); a.rel = "noopener"; a.target = "_self";
+    document.body.appendChild(a);
+    a.dispatchEvent(new MouseEvent("click", { view: window, bubbles: true, cancelable: true }));
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    if (isApple) setTimeout(function () { hint.hidden = false; }, 1500);
   });
 })();
 </script>
